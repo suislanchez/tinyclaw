@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
-use crate::providers::{self, ChatMessage, Provider};
+use crate::providers::{self, ChatMessage, Provider, UsageTracker};
 use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
@@ -128,7 +128,7 @@ struct ParsedToolCall {
 async fn agent_turn(
     provider: &dyn Provider,
     history: &mut Vec<ChatMessage>,
-    tools_registry: &[Box<dyn Tool>],
+    tools_registry: &Arc<Vec<Box<dyn Tool>>>,
     observer: &dyn Observer,
     model: &str,
     temperature: f64,
@@ -156,43 +156,8 @@ async fn agent_turn(
             let _ = std::io::stdout().flush();
         }
 
-        // Execute each tool call and build results
-        let mut tool_results = String::new();
-        for call in &tool_calls {
-            let start = Instant::now();
-            let result = if let Some(tool) = find_tool(tools_registry, &call.name) {
-                match tool.execute(call.arguments.clone()).await {
-                    Ok(r) => {
-                        observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: r.success,
-                        });
-                        if r.success {
-                            r.output
-                        } else {
-                            format!("Error: {}", r.error.unwrap_or_else(|| r.output))
-                        }
-                    }
-                    Err(e) => {
-                        observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: false,
-                        });
-                        format!("Error executing {}: {e}", call.name)
-                    }
-                }
-            } else {
-                format!("Unknown tool: {}", call.name)
-            };
-
-            let _ = writeln!(
-                tool_results,
-                "<tool_result name=\"{}\">\n{}\n</tool_result>",
-                call.name, result
-            );
-        }
+        // Execute tool calls concurrently when multiple are requested
+        let tool_results = execute_tools_parallel(&tool_calls, tools_registry, observer).await;
 
         // Add assistant message with tool calls + tool results to history
         history.push(ChatMessage::assistant(&response));
@@ -202,6 +167,90 @@ async fn agent_turn(
     }
 
     anyhow::bail!("Agent exceeded maximum tool iterations ({MAX_TOOL_ITERATIONS})")
+}
+
+/// Execute tool calls concurrently when multiple are present.
+/// Uses tokio::spawn with Arc-wrapped tools for true parallelism.
+async fn execute_tools_parallel(
+    calls: &[ParsedToolCall],
+    tools_registry: &Arc<Vec<Box<dyn Tool>>>,
+    observer: &dyn Observer,
+) -> String {
+    let mut tool_results = String::new();
+
+    if calls.len() <= 1 {
+        // Single tool — execute directly, no parallelism overhead
+        for call in calls {
+            let start = Instant::now();
+            let output = if let Some(tool) = find_tool(tools_registry, &call.name) {
+                match tool.execute(call.arguments.clone()).await {
+                    Ok(r) if r.success => r.output,
+                    Ok(r) => format!("Error: {}", r.error.unwrap_or_else(|| r.output)),
+                    Err(e) => format!("Error executing {}: {e}", call.name),
+                }
+            } else {
+                format!("Unknown tool: {}", call.name)
+            };
+            observer.record_event(&ObserverEvent::ToolCall {
+                tool: call.name.clone(),
+                duration: start.elapsed(),
+                success: !output.starts_with("Error"),
+            });
+            let _ = writeln!(
+                tool_results,
+                "<tool_result name=\"{}\">\n{}\n</tool_result>",
+                call.name, output
+            );
+        }
+        return tool_results;
+    }
+
+    // Multiple tool calls — spawn concurrent tasks with Arc<tools>.
+    let mut handles = Vec::with_capacity(calls.len());
+
+    for call in calls {
+        let name = call.name.clone();
+        let args = call.arguments.clone();
+        let tools = Arc::clone(tools_registry);
+        handles.push(tokio::spawn(async move {
+            let start = Instant::now();
+            let output = if let Some(tool) = tools.iter().find(|t| t.name() == name) {
+                match tool.execute(args).await {
+                    Ok(r) if r.success => r.output,
+                    Ok(r) => format!("Error: {}", r.error.unwrap_or_else(|| r.output)),
+                    Err(e) => format!("Error executing {name}: {e}"),
+                }
+            } else {
+                format!("Unknown tool: {name}")
+            };
+            (name, output, start.elapsed())
+        }));
+    }
+
+    // Collect results in original order
+    for handle in handles {
+        match handle.await {
+            Ok((name, output, duration)) => {
+                observer.record_event(&ObserverEvent::ToolCall {
+                    tool: name.clone(),
+                    duration,
+                    success: !output.starts_with("Error"),
+                });
+                let _ = writeln!(
+                    tool_results,
+                    "<tool_result name=\"{name}\">\n{output}\n</tool_result>",
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(
+                    tool_results,
+                    "<tool_result name=\"unknown\">\nTask panicked: {e}\n</tool_result>",
+                );
+            }
+        }
+    }
+
+    tool_results
 }
 
 /// Build the tool instruction block for the system prompt so the LLM knows
@@ -261,13 +310,13 @@ pub async fn run(
     } else {
         None
     };
-    let tools_registry = tools::all_tools_with_runtime(
+    let tools_registry = Arc::new(tools::all_tools_with_runtime(
         &security,
         runtime,
         mem.clone(),
         composio_key,
         &config.browser,
-    );
+    ));
 
     // ── Resolve provider ─────────────────────────────────────────
     let provider_name = provider_override
@@ -280,13 +329,16 @@ pub async fn run(
         .or(config.default_model.as_deref())
         .unwrap_or("anthropic/claude-sonnet-4-20250514");
 
-    let provider: Box<dyn Provider> = providers::create_routed_provider(
+    let mut provider: Box<dyn Provider> = providers::create_routed_provider(
         provider_name,
         config.api_key.as_deref(),
         &config.reliability,
         &config.model_routes,
         model_name,
     )?;
+
+    let usage_tracker = UsageTracker::new();
+    provider.set_usage_tracker(usage_tracker.clone());
 
     observer.record_event(&ObserverEvent::AgentStart {
         provider: provider_name.to_string(),
@@ -395,7 +447,7 @@ pub async fn run(
                 .await;
         }
     } else {
-        println!("🦀 ZeroClaw Interactive Mode");
+        println!("🦀 TinyClaw Interactive Mode");
         println!("Type /quit to exit.\n");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
@@ -460,9 +512,14 @@ pub async fn run(
     }
 
     let duration = start.elapsed();
+    let total_tokens = usage_tracker.snapshot().total_tokens;
     observer.record_event(&ObserverEvent::AgentEnd {
         duration,
-        tokens_used: None,
+        tokens_used: if total_tokens > 0 {
+            Some(total_tokens)
+        } else {
+            None
+        },
     });
 
     Ok(())

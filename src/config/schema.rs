@@ -333,7 +333,7 @@ pub struct ObservabilityConfig {
     #[serde(default)]
     pub otel_endpoint: Option<String>,
 
-    /// Service name reported to the OTel collector. Defaults to "zeroclaw".
+    /// Service name reported to the OTel collector. Defaults to "tinyclaw".
     #[serde(default)]
     pub otel_service_name: Option<String>,
 }
@@ -692,7 +692,7 @@ pub struct ChannelsConfig {
     pub imessage: Option<IMessageConfig>,
     pub matrix: Option<MatrixConfig>,
     pub whatsapp: Option<WhatsAppConfig>,
-    pub email: Option<crate::channels::email_channel::EmailConfig>,
+    pub email: Option<EmailConfig>,
     pub irc: Option<IrcConfig>,
 }
 
@@ -803,17 +803,62 @@ fn default_irc_port() -> u16 {
     6697
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfig {
+    pub imap_host: String,
+    #[serde(default = "default_email_imap_port")]
+    pub imap_port: u16,
+    #[serde(default = "default_email_imap_folder")]
+    pub imap_folder: String,
+    pub smtp_host: String,
+    #[serde(default = "default_email_smtp_port")]
+    pub smtp_port: u16,
+    #[serde(default = "default_email_smtp_tls")]
+    pub smtp_tls: bool,
+    pub username: String,
+    pub password: String,
+    pub from_address: String,
+    #[serde(default = "default_email_poll_interval")]
+    pub poll_interval_secs: u64,
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+}
+
+fn default_email_imap_port() -> u16 { 993 }
+fn default_email_smtp_port() -> u16 { 587 }
+fn default_email_imap_folder() -> String { "INBOX".into() }
+fn default_email_smtp_tls() -> bool { true }
+fn default_email_poll_interval() -> u64 { 60 }
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            imap_host: String::new(),
+            imap_port: default_email_imap_port(),
+            imap_folder: default_email_imap_folder(),
+            smtp_host: String::new(),
+            smtp_port: default_email_smtp_port(),
+            smtp_tls: true,
+            username: String::new(),
+            password: String::new(),
+            from_address: String::new(),
+            poll_interval_secs: default_email_poll_interval(),
+            allowed_senders: Vec::new(),
+        }
+    }
+}
+
 // ── Config impl ──────────────────────────────────────────────────
 
 impl Default for Config {
     fn default() -> Self {
         let home =
             UserDirs::new().map_or_else(|| PathBuf::from("."), |u| u.home_dir().to_path_buf());
-        let zeroclaw_dir = home.join(".zeroclaw");
+        let tinyclaw_dir = home.join(".tinyclaw");
 
         Self {
-            workspace_dir: zeroclaw_dir.join("workspace"),
-            config_path: zeroclaw_dir.join("config.toml"),
+            workspace_dir: tinyclaw_dir.join("workspace"),
+            config_path: tinyclaw_dir.join("config.toml"),
             api_key: None,
             default_provider: Some("openrouter".to_string()),
             default_model: Some("anthropic/claude-sonnet-4-20250514".to_string()),
@@ -841,12 +886,12 @@ impl Config {
         let home = UserDirs::new()
             .map(|u| u.home_dir().to_path_buf())
             .context("Could not find home directory")?;
-        let zeroclaw_dir = home.join(".zeroclaw");
-        let config_path = zeroclaw_dir.join("config.toml");
+        let tinyclaw_dir = home.join(".tinyclaw");
+        let config_path = tinyclaw_dir.join("config.toml");
 
-        if !zeroclaw_dir.exists() {
-            fs::create_dir_all(&zeroclaw_dir).context("Failed to create .zeroclaw directory")?;
-            fs::create_dir_all(zeroclaw_dir.join("workspace"))
+        if !tinyclaw_dir.exists() {
+            fs::create_dir_all(&tinyclaw_dir).context("Failed to create .tinyclaw directory")?;
+            fs::create_dir_all(tinyclaw_dir.join("workspace"))
                 .context("Failed to create workspace directory")?;
         }
 
@@ -857,12 +902,12 @@ impl Config {
                 toml::from_str(&contents).context("Failed to parse config file")?;
             // Set computed paths that are skipped during serialization
             config.config_path = config_path.clone();
-            config.workspace_dir = zeroclaw_dir.join("workspace");
+            config.workspace_dir = tinyclaw_dir.join("workspace");
             Ok(config)
         } else {
             let mut config = Config::default();
             config.config_path = config_path.clone();
-            config.workspace_dir = zeroclaw_dir.join("workspace");
+            config.workspace_dir = tinyclaw_dir.join("workspace");
             config.save()?;
             Ok(config)
         }
@@ -1187,7 +1232,7 @@ default_temperature = 0.7
 
     #[test]
     fn config_save_and_load_tmpdir() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_config");
+        let dir = std::env::temp_dir().join("tinyclaw_test_config");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -1230,7 +1275,7 @@ default_temperature = 0.7
     #[test]
     fn config_save_atomic_cleanup() {
         let dir =
-            std::env::temp_dir().join(format!("zeroclaw_test_config_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("tinyclaw_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");

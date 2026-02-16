@@ -13,44 +13,62 @@ use clap::{Parser, Subcommand};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
+// ── Always compiled (tiny tier) ────────────────────────────────
 mod agent;
 mod channels;
 mod config;
-mod cron;
-mod daemon;
-mod doctor;
-mod gateway;
 mod health;
-mod heartbeat;
 mod identity;
-mod integrations;
 mod memory;
-mod migration;
 mod observability;
 mod onboard;
 mod providers;
 mod runtime;
 mod security;
-mod service;
-mod skillforge;
+mod session;
 mod skills;
 mod tools;
-mod tunnel;
 mod util;
+
+// ── Standard tier (+TUI) ──────────────────────────────────────
+#[cfg(feature = "tui-feature")]
+mod tui;
+
+// ── Full tier (+gateway, daemon, channels, scheduler, etc.) ───
+#[cfg(feature = "gateway-feature")]
+mod gateway;
+#[cfg(feature = "daemon-feature")]
+mod daemon;
+#[cfg(feature = "daemon-feature")]
+mod cron;
+#[cfg(feature = "daemon-feature")]
+mod doctor;
+#[cfg(feature = "daemon-feature")]
+mod heartbeat;
+#[cfg(feature = "daemon-feature")]
+mod service;
+#[cfg(feature = "full")]
+mod integrations;
+#[cfg(feature = "full")]
+mod migration;
+#[cfg(feature = "skillforge-feature")]
+mod skillforge;
+#[cfg(feature = "tunnel-feature")]
+mod tunnel;
 
 use config::Config;
 
-/// `ZeroClaw` - Zero overhead. Zero compromise. 100% Rust.
+/// `TinyClaw` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
-#[command(name = "zeroclaw")]
-#[command(author = "theonlyhennygod")]
+#[command(name = "tinyclaw")]
 #[command(version = "0.1.0")]
-#[command(about = "The fastest, smallest AI assistant.", long_about = None)]
+#[command(about = "Ultra-efficient AI assistant. Fork of ZeroClaw.", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
+#[cfg(feature = "daemon-feature")]
 #[derive(Subcommand, Debug)]
 enum ServiceCommands {
     /// Install daemon service unit for auto-start and restart
@@ -90,6 +108,22 @@ enum Commands {
         memory: Option<String>,
     },
 
+    /// Launch the TUI (terminal UI) chat interface
+    #[cfg(feature = "tui-feature")]
+    Tui {
+        /// Provider to use (openrouter, anthropic, openai, ollama)
+        #[arg(short, long)]
+        provider: Option<String>,
+
+        /// Model to use
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Temperature (0.0 - 2.0)
+        #[arg(short, long, default_value = "0.7")]
+        temperature: f64,
+    },
+
     /// Start the AI agent loop
     Agent {
         /// Single message mode (don't enter interactive mode)
@@ -110,6 +144,7 @@ enum Commands {
     },
 
     /// Start the gateway server (webhooks, websockets)
+    #[cfg(feature = "gateway-feature")]
     Gateway {
         /// Port to listen on (use 0 for random available port)
         #[arg(short, long, default_value = "8080")]
@@ -121,6 +156,7 @@ enum Commands {
     },
 
     /// Start long-running autonomous runtime (gateway + channels + heartbeat + scheduler)
+    #[cfg(feature = "daemon-feature")]
     Daemon {
         /// Port to listen on (use 0 for random available port)
         #[arg(short, long, default_value = "8080")]
@@ -132,30 +168,35 @@ enum Commands {
     },
 
     /// Manage OS service lifecycle (launchd/systemd user service)
+    #[cfg(feature = "daemon-feature")]
     Service {
         #[command(subcommand)]
         service_command: ServiceCommands,
     },
 
     /// Run diagnostics for daemon/scheduler/channel freshness
+    #[cfg(feature = "daemon-feature")]
     Doctor,
 
     /// Show system status (full details)
     Status,
 
     /// Configure and manage scheduled tasks
+    #[cfg(feature = "daemon-feature")]
     Cron {
         #[command(subcommand)]
         cron_command: CronCommands,
     },
 
     /// Manage channels (telegram, discord, slack)
+    #[cfg(feature = "channels-feature")]
     Channel {
         #[command(subcommand)]
         channel_command: ChannelCommands,
     },
 
     /// Browse 50+ integrations
+    #[cfg(feature = "full")]
     Integrations {
         #[command(subcommand)]
         integration_command: IntegrationCommands,
@@ -168,15 +209,17 @@ enum Commands {
     },
 
     /// Migrate data from other agent runtimes
+    #[cfg(feature = "full")]
     Migrate {
         #[command(subcommand)]
         migrate_command: MigrateCommands,
     },
 }
 
+#[cfg(feature = "full")]
 #[derive(Subcommand, Debug)]
 enum MigrateCommands {
-    /// Import memory from an `OpenClaw` workspace into this `ZeroClaw` workspace
+    /// Import memory from an `OpenClaw` workspace into this `TinyClaw` workspace
     Openclaw {
         /// Optional path to `OpenClaw` workspace (defaults to ~/.openclaw/workspace)
         #[arg(long)]
@@ -188,6 +231,7 @@ enum MigrateCommands {
     },
 }
 
+#[cfg(feature = "daemon-feature")]
 #[derive(Subcommand, Debug)]
 enum CronCommands {
     /// List all scheduled tasks
@@ -206,6 +250,7 @@ enum CronCommands {
     },
 }
 
+#[cfg(feature = "channels-feature")]
 #[derive(Subcommand, Debug)]
 enum ChannelCommands {
     /// List configured channels
@@ -244,6 +289,7 @@ enum SkillCommands {
     },
 }
 
+#[cfg(feature = "full")]
 #[derive(Subcommand, Debug)]
 enum IntegrationCommands {
     /// Show details about a specific integration
@@ -257,8 +303,6 @@ enum IntegrationCommands {
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
     // Install default crypto provider for Rustls TLS.
-    // This prevents the error: "could not automatically determine the process-level CryptoProvider"
-    // when both aws-lc-rs and ring features are available (or neither is explicitly selected).
     if let Err(e) = rustls::crypto::ring::default_provider().install_default() {
         eprintln!("Warning: Failed to install default crypto provider: {e:?}");
     }
@@ -296,6 +340,7 @@ async fn main() -> Result<()> {
             onboard::run_quick_setup(api_key.as_deref(), provider.as_deref(), memory.as_deref())?
         };
         // Auto-start channels if user said yes during wizard
+        #[cfg(feature = "channels-feature")]
         if std::env::var("ZEROCLAW_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
             channels::start_channels(config).await?;
         }
@@ -308,6 +353,13 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Onboard { .. } => unreachable!(),
 
+        #[cfg(feature = "tui-feature")]
+        Commands::Tui {
+            provider,
+            model,
+            temperature,
+        } => tui::run(config, provider, model, temperature).await,
+
         Commands::Agent {
             message,
             provider,
@@ -315,44 +367,46 @@ async fn main() -> Result<()> {
             temperature,
         } => agent::run(config, message, provider, model, temperature).await,
 
+        #[cfg(feature = "gateway-feature")]
         Commands::Gateway { port, host } => {
             if port == 0 {
-                info!("🚀 Starting ZeroClaw Gateway on {host} (random port)");
+                info!("Starting TinyClaw Gateway on {host} (random port)");
             } else {
-                info!("🚀 Starting ZeroClaw Gateway on {host}:{port}");
+                info!("Starting TinyClaw Gateway on {host}:{port}");
             }
             gateway::run_gateway(&host, port, config).await
         }
 
+        #[cfg(feature = "daemon-feature")]
         Commands::Daemon { port, host } => {
             if port == 0 {
-                info!("🧠 Starting ZeroClaw Daemon on {host} (random port)");
+                info!("Starting TinyClaw Daemon on {host} (random port)");
             } else {
-                info!("🧠 Starting ZeroClaw Daemon on {host}:{port}");
+                info!("Starting TinyClaw Daemon on {host}:{port}");
             }
             daemon::run(config, host, port).await
         }
 
         Commands::Status => {
-            println!("🦀 ZeroClaw Status");
+            println!("TinyClaw Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
             println!("Workspace:   {}", config.workspace_dir.display());
             println!("Config:      {}", config.config_path.display());
             println!();
             println!(
-                "🤖 Provider:      {}",
+                "Provider:      {}",
                 config.default_provider.as_deref().unwrap_or("openrouter")
             );
             println!(
-                "   Model:         {}",
+                "Model:         {}",
                 config.default_model.as_deref().unwrap_or("(default)")
             );
-            println!("📊 Observability:  {}", config.observability.backend);
-            println!("🛡️  Autonomy:      {:?}", config.autonomy.level);
-            println!("⚙️  Runtime:       {}", config.runtime.kind);
+            println!("Observability: {}", config.observability.backend);
+            println!("Autonomy:      {:?}", config.autonomy.level);
+            println!("Runtime:       {}", config.runtime.kind);
             println!(
-                "💓 Heartbeat:      {}",
+                "Heartbeat:     {}",
                 if config.heartbeat.enabled {
                     format!("every {}min", config.heartbeat.interval_minutes)
                 } else {
@@ -360,60 +414,43 @@ async fn main() -> Result<()> {
                 }
             );
             println!(
-                "🧠 Memory:         {} (auto-save: {})",
+                "Memory:        {} (auto-save: {})",
                 config.memory.backend,
                 if config.memory.auto_save { "on" } else { "off" }
             );
 
-            println!();
-            println!("Security:");
-            println!("  Workspace only:    {}", config.autonomy.workspace_only);
-            println!(
-                "  Allowed commands:  {}",
-                config.autonomy.allowed_commands.join(", ")
-            );
-            println!(
-                "  Max actions/hour:  {}",
-                config.autonomy.max_actions_per_hour
-            );
-            println!(
-                "  Max cost/day:      ${:.2}",
-                f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
-            );
-            println!();
-            println!("Channels:");
-            println!("  CLI:      ✅ always");
-            for (name, configured) in [
-                ("Telegram", config.channels_config.telegram.is_some()),
-                ("Discord", config.channels_config.discord.is_some()),
-                ("Slack", config.channels_config.slack.is_some()),
-                ("Webhook", config.channels_config.webhook.is_some()),
-            ] {
-                println!(
-                    "  {name:9} {}",
-                    if configured {
-                        "✅ configured"
-                    } else {
-                        "❌ not configured"
-                    }
-                );
+            #[cfg(feature = "tiny")]
+            {
+                let tier = if cfg!(feature = "full") {
+                    "full"
+                } else if cfg!(feature = "standard") {
+                    "standard"
+                } else {
+                    "tiny"
+                };
+                println!("Build tier:    {tier}");
             }
 
             Ok(())
         }
 
+        #[cfg(feature = "daemon-feature")]
         Commands::Cron { cron_command } => cron::handle_command(cron_command, &config),
 
+        #[cfg(feature = "daemon-feature")]
         Commands::Service { service_command } => service::handle_command(&service_command, &config),
 
+        #[cfg(feature = "daemon-feature")]
         Commands::Doctor => doctor::run(&config),
 
+        #[cfg(feature = "channels-feature")]
         Commands::Channel { channel_command } => match channel_command {
             ChannelCommands::Start => channels::start_channels(config).await,
             ChannelCommands::Doctor => channels::doctor_channels(config).await,
             other => channels::handle_command(other, &config),
         },
 
+        #[cfg(feature = "full")]
         Commands::Integrations {
             integration_command,
         } => integrations::handle_command(integration_command, &config),
@@ -422,6 +459,7 @@ async fn main() -> Result<()> {
             skills::handle_command(skill_command, &config.workspace_dir)
         }
 
+        #[cfg(feature = "full")]
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await
         }

@@ -2,7 +2,7 @@
 //! Most LLM APIs follow the same `/v1/chat/completions` format.
 //! This module provides a single implementation that works for all of them.
 
-use crate::providers::traits::{ChatMessage, Provider};
+use crate::providers::traits::{ChatMessage, Provider, TokenUsage, UsageTracker};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,7 @@ pub struct OpenAiCompatibleProvider {
     pub(crate) api_key: Option<String>,
     pub(crate) auth_header: AuthStyle,
     client: Client,
+    usage_tracker: Option<UsageTracker>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -41,6 +42,17 @@ impl OpenAiCompatibleProvider {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            usage_tracker: None,
+        }
+    }
+
+    fn track_usage(&self, usage: &Option<ApiUsage>) {
+        if let (Some(tracker), Some(u)) = (&self.usage_tracker, usage) {
+            tracker.add(&TokenUsage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            });
         }
     }
 
@@ -83,6 +95,18 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct ApiChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<ApiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
+    #[serde(default)]
+    total_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,7 +253,7 @@ impl Provider for OpenAiCompatibleProvider {
     ) -> anyhow::Result<String> {
         let api_key = self.api_key.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                "{} API key not set. Run `zeroclaw onboard` or set the appropriate env var.",
+                "{} API key not set. Run `tinyclaw onboard` or set the appropriate env var.",
                 self.name
             )
         })?;
@@ -282,6 +306,7 @@ impl Provider for OpenAiCompatibleProvider {
         }
 
         let chat_response: ApiChatResponse = response.json().await?;
+        self.track_usage(&chat_response.usage);
 
         chat_response
             .choices
@@ -299,7 +324,7 @@ impl Provider for OpenAiCompatibleProvider {
     ) -> anyhow::Result<String> {
         let api_key = self.api_key.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                "{} API key not set. Run `zeroclaw onboard` or set the appropriate env var.",
+                "{} API key not set. Run `tinyclaw onboard` or set the appropriate env var.",
                 self.name
             )
         })?;
@@ -354,6 +379,7 @@ impl Provider for OpenAiCompatibleProvider {
         }
 
         let chat_response: ApiChatResponse = response.json().await?;
+        self.track_usage(&chat_response.usage);
 
         chat_response
             .choices
@@ -361,6 +387,10 @@ impl Provider for OpenAiCompatibleProvider {
             .next()
             .map(|c| c.message.content)
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))
+    }
+
+    fn set_usage_tracker(&mut self, tracker: UsageTracker) {
+        self.usage_tracker = Some(tracker);
     }
 }
 
@@ -412,7 +442,7 @@ mod tests {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "You are ZeroClaw".to_string(),
+                    content: "You are TinyClaw".to_string(),
                 },
                 Message {
                     role: "user".to_string(),

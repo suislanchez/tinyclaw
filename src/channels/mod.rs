@@ -1,23 +1,41 @@
 pub mod cli;
-pub mod discord;
-pub mod email_channel;
-pub mod imessage;
-pub mod irc;
-pub mod matrix;
-pub mod slack;
-pub mod telegram;
 pub mod traits;
+
+#[cfg(feature = "channels-feature")]
+pub mod discord;
+#[cfg(feature = "channels-feature")]
+pub mod email_channel;
+#[cfg(feature = "channels-feature")]
+pub mod imessage;
+#[cfg(feature = "channels-feature")]
+pub mod irc;
+#[cfg(feature = "channels-feature")]
+pub mod matrix;
+#[cfg(feature = "channels-feature")]
+pub mod slack;
+#[cfg(feature = "channels-feature")]
+pub mod telegram;
+#[cfg(feature = "channels-feature")]
 pub mod whatsapp;
 
 pub use cli::CliChannel;
-pub use discord::DiscordChannel;
-pub use email_channel::EmailChannel;
-pub use imessage::IMessageChannel;
-pub use irc::IrcChannel;
-pub use matrix::MatrixChannel;
-pub use slack::SlackChannel;
-pub use telegram::TelegramChannel;
 pub use traits::Channel;
+
+#[cfg(feature = "channels-feature")]
+pub use discord::DiscordChannel;
+#[cfg(feature = "channels-feature")]
+pub use email_channel::EmailChannel;
+#[cfg(feature = "channels-feature")]
+pub use imessage::IMessageChannel;
+#[cfg(feature = "channels-feature")]
+pub use irc::IrcChannel;
+#[cfg(feature = "channels-feature")]
+pub use matrix::MatrixChannel;
+#[cfg(feature = "channels-feature")]
+pub use slack::SlackChannel;
+#[cfg(feature = "channels-feature")]
+pub use telegram::TelegramChannel;
+#[cfg(feature = "channels-feature")]
 pub use whatsapp::WhatsAppChannel;
 
 use crate::config::Config;
@@ -235,7 +253,7 @@ pub fn build_system_prompt(
     );
 
     if prompt.is_empty() {
-        "You are ZeroClaw, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
+        "You are TinyClaw, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
     } else {
         prompt
     }
@@ -281,6 +299,7 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &std::path::Path, f
     }
 }
 
+#[cfg(feature = "channels-feature")]
 pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Result<()> {
     match command {
         crate::ChannelCommands::Start => {
@@ -305,9 +324,9 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
-            println!("\nTo start channels: zeroclaw channel start");
-            println!("To check health:    zeroclaw channel doctor");
-            println!("To configure:      zeroclaw onboard");
+            println!("\nTo start channels: tinyclaw channel start");
+            println!("To check health:    tinyclaw channel doctor");
+            println!("To configure:      tinyclaw onboard");
             Ok(())
         }
         crate::ChannelCommands::Add {
@@ -315,11 +334,11 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
             config: _,
         } => {
             anyhow::bail!(
-                "Channel type '{channel_type}' — use `zeroclaw onboard` to configure channels"
+                "Channel type '{channel_type}' — use `tinyclaw onboard` to configure channels"
             );
         }
         crate::ChannelCommands::Remove { name } => {
-            anyhow::bail!("Remove channel '{name}' — edit ~/.zeroclaw/config.toml directly");
+            anyhow::bail!("Remove channel '{name}' — edit ~/.tinyclaw/config.toml directly");
         }
     }
 }
@@ -342,6 +361,7 @@ fn classify_health_result(
 }
 
 /// Run health checks for configured channels.
+#[cfg(feature = "channels-feature")]
 pub async fn doctor_channels(config: Config) -> Result<()> {
     let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
 
@@ -431,11 +451,11 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     }
 
     if channels.is_empty() {
-        println!("No real-time channels configured. Run `zeroclaw onboard` first.");
+        println!("No real-time channels configured. Run `tinyclaw onboard` first.");
         return Ok(());
     }
 
-    println!("🩺 ZeroClaw Channel Doctor");
+    println!("🩺 TinyClaw Channel Doctor");
     println!();
 
     let mut healthy = 0_u32;
@@ -463,7 +483,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     }
 
     if config.channels_config.webhook.is_some() {
-        println!("  ℹ️  Webhook   check via `zeroclaw gateway` then GET /health");
+        println!("  ℹ️  Webhook   check via `tinyclaw gateway` then GET /health");
     }
 
     println!();
@@ -473,6 +493,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
 
 /// Start all configured channels and route messages to the agent
 #[allow(clippy::too_many_lines)]
+#[cfg(feature = "channels-feature")]
 pub async fn start_channels(config: Config) -> Result<()> {
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider(
         config.default_provider.as_deref().unwrap_or("openrouter"),
@@ -623,11 +644,11 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     if channels.is_empty() {
-        println!("No channels configured. Run `zeroclaw onboard` to set up channels.");
+        println!("No channels configured. Run `tinyclaw onboard` to set up channels.");
         return Ok(());
     }
 
-    println!("🦀 ZeroClaw Channel Server");
+    println!("🦀 TinyClaw Channel Server");
     println!("  🤖 Model:    {model}");
     println!(
         "  🧠 Memory:   {} (auto-save: {})",
@@ -775,7 +796,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Create minimal workspace files
         std::fs::write(tmp.path().join("SOUL.md"), "# Soul\nBe helpful.").unwrap();
-        std::fs::write(tmp.path().join("IDENTITY.md"), "# Identity\nName: ZeroClaw").unwrap();
+        std::fs::write(tmp.path().join("IDENTITY.md"), "# Identity\nName: TinyClaw").unwrap();
         std::fs::write(tmp.path().join("USER.md"), "# User\nName: Test User").unwrap();
         std::fs::write(
             tmp.path().join("AGENTS.md"),
@@ -846,7 +867,7 @@ mod tests {
         assert!(prompt.contains("Be helpful"), "missing SOUL content");
         assert!(prompt.contains("### IDENTITY.md"), "missing IDENTITY.md");
         assert!(
-            prompt.contains("Name: ZeroClaw"),
+            prompt.contains("Name: TinyClaw"),
             "missing IDENTITY content"
         );
         assert!(prompt.contains("### USER.md"), "missing USER.md");

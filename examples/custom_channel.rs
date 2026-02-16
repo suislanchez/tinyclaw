@@ -1,6 +1,6 @@
-//! Example: Implementing a custom Channel for ZeroClaw
+//! Example: Implementing a custom Channel for TinyClaw
 //!
-//! Channels let ZeroClaw communicate through any messaging platform.
+//! Channels let TinyClaw communicate through any messaging platform.
 //! Implement the Channel trait, register it, and the agent works everywhere.
 
 use anyhow::Result;

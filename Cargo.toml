@@ -1,23 +1,41 @@
 [package]
-name = "zeroclaw"
+name = "tinyclaw"
 version = "0.1.0"
 edition = "2021"
-authors = ["theonlyhennygod"]
+authors = ["theonlyhennygod", "tinyclaw contributors"]
 license = "MIT"
-description = "Zero overhead. Zero compromise. 100% Rust. The fastest, smallest AI assistant."
-repository = "https://github.com/theonlyhennygod/zeroclaw"
+description = "Ultra-efficient AI assistant. Fork of ZeroClaw. Runs on 10MB to 16GB RAM."
 readme = "README.md"
-keywords = ["ai", "agent", "cli", "assistant", "chatbot"]
+keywords = ["ai", "agent", "cli", "assistant", "tui"]
 categories = ["command-line-utilities", "api-bindings"]
 
+# ── Feature tiers ───────────────────────────────────────────────
+# tiny:     CLI agent only (~2MB). For Raspberry Pi Zero / 10MB RAM.
+# standard: + TUI + full memory + observability logging. For 8GB dev machines.
+# full:     + gateway + daemon + channels + OTel + skillforge + tunnel. For 16GB servers.
+[features]
+default = ["full"]
+tiny     = []
+standard = ["tiny", "tui-feature"]
+full     = ["standard", "gateway-feature", "daemon-feature", "channels-feature", "otel", "skillforge-feature", "tunnel-feature"]
+
+tui-feature       = ["dep:ratatui", "dep:crossterm"]
+gateway-feature   = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http-body-util"]
+daemon-feature    = ["gateway-feature"]
+channels-feature  = ["dep:tokio-tungstenite", "dep:futures-util", "dep:lettre", "dep:mail-parser"]
+otel              = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp"]
+skillforge-feature = []
+tunnel-feature    = []
+
 [dependencies]
-# CLI - minimal and fast
+# ── Always included (tiny tier) ─────────────────────────────────
+# CLI
 clap = { version = "4.5", features = ["derive"] }
 
-# Async runtime - feature-optimized for size
+# Async runtime
 tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
 
-# HTTP client - minimal features
+# HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "multipart", "stream"] }
 
 # Serialization
@@ -29,27 +47,25 @@ directories = "5.0"
 toml = "0.8"
 shellexpand = "3.1"
 
-# Logging - minimal
+# Logging
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 
-# Observability - Prometheus metrics
+# Observability - Prometheus (lightweight, always available)
 prometheus = { version = "0.13", default-features = false }
 
-# Base64 encoding (screenshots, image data)
+# Base64
 base64 = "0.22"
 
 # Error handling
 anyhow = "1.0"
 thiserror = "2.0"
 
-# UUID generation
+# UUID
 uuid = { version = "1.11", default-features = false, features = ["v4", "std"] }
 
-# Authenticated encryption (AEAD) for secret store
+# Crypto
 chacha20poly1305 = "0.10"
-
-# HMAC for webhook signature verification
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
@@ -66,27 +82,35 @@ cron = "0.12"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 console = "0.15"
 
-# Discord WebSocket gateway
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-hostname = "0.4.2"
-lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
-mail-parser = "0.11.2"
+# TLS (needed by reqwest)
 rustls = "0.23"
 rustls-pki-types = "1.14.0"
+hostname = "0.4.2"
+
+# ── TUI tier (standard+) ────────────────────────────────────────
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"], optional = true }
+crossterm = { version = "0.28", optional = true }
+
+# ── Gateway/Daemon tier (full) ──────────────────────────────────
+axum = { version = "0.7", default-features = false, features = ["http1", "json", "tokio", "query"], optional = true }
+tower = { version = "0.5", default-features = false, optional = true }
+tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+
+# ── Channels tier (full) ────────────────────────────────────────
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"], optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink"], optional = true }
+lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"], optional = true }
+mail-parser = { version = "0.11.2", optional = true }
+
+# ── OTel tier (full) ────────────────────────────────────────────
+opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }
+
+# ── Always needed by channels/tunnel but small ──────────────────
 tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
-
-# HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
-axum = { version = "0.7", default-features = false, features = ["http1", "json", "tokio", "query"] }
-tower = { version = "0.5", default-features = false }
-tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
-http-body-util = "0.1"
-
-# OpenTelemetry — OTLP trace + metrics export
-opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 
 [profile.release]
 opt-level = "z"      # Optimize for size

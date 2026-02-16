@@ -1,4 +1,4 @@
-use crate::providers::traits::Provider;
+use crate::providers::traits::{Provider, TokenUsage, UsageTracker};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct OpenAiProvider {
     api_key: Option<String>,
     client: Client,
+    usage_tracker: Option<UsageTracker>,
 }
 
 #[derive(Debug, Serialize)]
@@ -24,6 +25,18 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<ApiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApiUsage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
+    #[serde(default)]
+    total_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,6 +58,17 @@ impl OpenAiProvider {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            usage_tracker: None,
+        }
+    }
+
+    fn track_usage(&self, usage: &Option<ApiUsage>) {
+        if let (Some(tracker), Some(u)) = (&self.usage_tracker, usage) {
+            tracker.add(&TokenUsage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            });
         }
     }
 }
@@ -95,6 +119,7 @@ impl Provider for OpenAiProvider {
         }
 
         let chat_response: ChatResponse = response.json().await?;
+        self.track_usage(&chat_response.usage);
 
         chat_response
             .choices
@@ -102,6 +127,10 @@ impl Provider for OpenAiProvider {
             .next()
             .map(|c| c.message.content)
             .ok_or_else(|| anyhow::anyhow!("No response from OpenAI"))
+    }
+
+    fn set_usage_tracker(&mut self, tracker: UsageTracker) {
+        self.usage_tracker = Some(tracker);
     }
 }
 
@@ -139,7 +168,7 @@ mod tests {
     async fn chat_with_system_fails_without_key() {
         let p = OpenAiProvider::new(None);
         let result = p
-            .chat_with_system(Some("You are ZeroClaw"), "test", "gpt-4o", 0.5)
+            .chat_with_system(Some("You are TinyClaw"), "test", "gpt-4o", 0.5)
             .await;
         assert!(result.is_err());
     }
@@ -151,7 +180,7 @@ mod tests {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "You are ZeroClaw".to_string(),
+                    content: "You are TinyClaw".to_string(),
                 },
                 Message {
                     role: "user".to_string(),
@@ -217,5 +246,15 @@ mod tests {
         let json = format!(r#"{{"choices":[{{"message":{{"content":"{long}"}}}}]}}"#);
         let resp: ChatResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(resp.choices[0].message.content.len(), 100_000);
+    }
+
+    #[test]
+    fn response_deserializes_with_usage() {
+        let json = r#"{"choices":[{"message":{"content":"Hi!"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#;
+        let resp: ChatResponse = serde_json::from_str(json).unwrap();
+        let u = resp.usage.unwrap();
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 5);
+        assert_eq!(u.total_tokens, 15);
     }
 }

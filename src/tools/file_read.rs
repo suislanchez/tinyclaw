@@ -149,7 +149,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_existing_file() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
         tokio::fs::write(dir.join("test.txt"), "hello world")
@@ -167,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_nonexistent_file() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_missing");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read_missing");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
@@ -181,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_blocks_path_traversal() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_traversal");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read_traversal");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_empty_file() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_empty");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read_empty");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
         tokio::fs::write(dir.join("empty.txt"), "").await.unwrap();
@@ -228,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_nested_path() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_nested");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read_nested");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(dir.join("sub/dir"))
             .await
@@ -253,7 +253,7 @@ mod tests {
     async fn file_read_blocks_symlink_escape() {
         use std::os::unix::fs::symlink;
 
-        let root = std::env::temp_dir().join("zeroclaw_test_file_read_symlink_escape");
+        let root = std::env::temp_dir().join("tinyclaw_test_file_read_symlink_escape");
         let workspace = root.join("workspace");
         let outside = root.join("outside");
 
@@ -282,7 +282,7 @@ mod tests {
 
     #[tokio::test]
     async fn file_read_rejects_oversized_file() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_large");
+        let dir = std::env::temp_dir().join("tinyclaw_test_file_read_large");
         let _ = tokio::fs::remove_dir_all(&dir).await;
         tokio::fs::create_dir_all(&dir).await.unwrap();
 

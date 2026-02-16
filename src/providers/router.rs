@@ -1,4 +1,4 @@
-use super::traits::ChatMessage;
+use super::traits::{ChatMessage, UsageTracker};
 use super::Provider;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -124,6 +124,30 @@ impl Provider for RouterProvider {
         provider
             .chat_with_history(messages, &resolved_model, temperature)
             .await
+    }
+
+    fn set_usage_tracker(&mut self, tracker: UsageTracker) {
+        for (_, provider) in &mut self.providers {
+            provider.set_usage_tracker(tracker.clone());
+        }
+    }
+
+    async fn chat_with_history_stream(
+        &self,
+        messages: &[ChatMessage],
+        model: &str,
+        temperature: f64,
+        token_tx: tokio::sync::mpsc::Sender<String>,
+    ) -> anyhow::Result<String> {
+        let (provider_idx, resolved_model) = self.resolve(model);
+        let (_, provider) = &self.providers[provider_idx];
+        provider
+            .chat_with_history_stream(messages, &resolved_model, temperature, token_tx)
+            .await
+    }
+
+    fn supports_streaming(&self) -> bool {
+        self.providers.iter().any(|(_, p)| p.supports_streaming())
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {

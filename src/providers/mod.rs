@@ -8,7 +8,7 @@ pub mod reliable;
 pub mod router;
 pub mod traits;
 
-pub use traits::{ChatMessage, Provider};
+pub use traits::{ChatMessage, Provider, TokenUsage, UsageTracker};
 
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
@@ -266,7 +266,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         }
 
         _ => anyhow::bail!(
-            "Unknown provider: {name}. Check README for supported providers or run `zeroclaw onboard --interactive` to reconfigure.\n\
+            "Unknown provider: {name}. Check README for supported providers or run `tinyclaw onboard --interactive` to reconfigure.\n\
              Tip: Use \"custom:https://your-api.com\" for OpenAI-compatible endpoints.\n\
              Tip: Use \"anthropic-custom:https://your-api.com\" for Anthropic-compatible endpoints."
         ),

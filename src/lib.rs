@@ -14,33 +14,53 @@
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
+// ── Always compiled (tiny tier) ────────────────────────────────
 pub mod agent;
 pub mod channels;
 pub mod config;
-pub mod cron;
-pub mod daemon;
-pub mod doctor;
-pub mod gateway;
 pub mod health;
-pub mod heartbeat;
 pub mod identity;
-pub mod integrations;
 pub mod memory;
-pub mod migration;
 pub mod observability;
 pub mod onboard;
 pub mod providers;
 pub mod runtime;
 pub mod security;
-pub mod service;
+pub mod session;
 pub mod skills;
 pub mod tools;
-pub mod tunnel;
 pub mod util;
+
+// ── Standard tier (+TUI) ──────────────────────────────────────
+#[cfg(feature = "tui-feature")]
+pub mod tui;
+
+// ── Full tier ──────────────────────────────────────────────────
+#[cfg(feature = "gateway-feature")]
+pub mod gateway;
+#[cfg(feature = "daemon-feature")]
+pub mod daemon;
+#[cfg(feature = "daemon-feature")]
+pub mod cron;
+#[cfg(feature = "daemon-feature")]
+pub mod doctor;
+#[cfg(feature = "daemon-feature")]
+pub mod heartbeat;
+#[cfg(feature = "daemon-feature")]
+pub mod service;
+#[cfg(feature = "full")]
+pub mod integrations;
+#[cfg(feature = "full")]
+pub mod migration;
+#[cfg(feature = "skillforge-feature")]
+pub mod skillforge;
+#[cfg(feature = "tunnel-feature")]
+pub mod tunnel;
 
 pub use config::Config;
 
 /// Service management subcommands
+#[cfg(feature = "daemon-feature")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ServiceCommands {
     /// Install daemon service unit for auto-start and restart
@@ -56,6 +76,7 @@ pub enum ServiceCommands {
 }
 
 /// Channel management subcommands
+#[cfg(feature = "channels-feature")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ChannelCommands {
     /// List all configured channels
@@ -96,9 +117,10 @@ pub enum SkillCommands {
 }
 
 /// Migration subcommands
+#[cfg(feature = "full")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MigrateCommands {
-    /// Import memory from an `OpenClaw` workspace into this `ZeroClaw` workspace
+    /// Import memory from an `OpenClaw` workspace into this `TinyClaw` workspace
     Openclaw {
         /// Optional path to `OpenClaw` workspace (defaults to ~/.openclaw/workspace)
         #[arg(long)]
@@ -111,6 +133,7 @@ pub enum MigrateCommands {
 }
 
 /// Cron subcommands
+#[cfg(feature = "daemon-feature")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CronCommands {
     /// List all scheduled tasks
@@ -130,6 +153,7 @@ pub enum CronCommands {
 }
 
 /// Integration subcommands
+#[cfg(feature = "full")]
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IntegrationCommands {
     /// Show details about a specific integration

@@ -1,4 +1,4 @@
-use crate::providers::traits::Provider;
+use crate::providers::traits::{Provider, TokenUsage, UsageTracker};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,7 @@ pub struct AnthropicProvider {
     credential: Option<String>,
     base_url: String,
     client: Client,
+    usage_tracker: Option<UsageTracker>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +29,16 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     content: Vec<ContentBlock>,
+    #[serde(default)]
+    usage: Option<AnthropicUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +67,7 @@ impl AnthropicProvider {
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            usage_tracker: None,
         }
     }
 
@@ -111,12 +123,24 @@ impl Provider for AnthropicProvider {
 
         let chat_response: ChatResponse = response.json().await?;
 
+        if let (Some(tracker), Some(u)) = (&self.usage_tracker, &chat_response.usage) {
+            tracker.add(&TokenUsage {
+                prompt_tokens: u.input_tokens,
+                completion_tokens: u.output_tokens,
+                total_tokens: u.input_tokens + u.output_tokens,
+            });
+        }
+
         chat_response
             .content
             .into_iter()
             .next()
             .map(|c| c.text)
             .ok_or_else(|| anyhow::anyhow!("No response from Anthropic"))
+    }
+
+    fn set_usage_tracker(&mut self, tracker: UsageTracker) {
+        self.usage_tracker = Some(tracker);
     }
 }
 
@@ -196,7 +220,7 @@ mod tests {
     async fn chat_with_system_fails_without_key() {
         let p = AnthropicProvider::new(None);
         let result = p
-            .chat_with_system(Some("You are ZeroClaw"), "hello", "claude-3-opus", 0.7)
+            .chat_with_system(Some("You are TinyClaw"), "hello", "claude-3-opus", 0.7)
             .await;
         assert!(result.is_err());
     }
@@ -227,7 +251,7 @@ mod tests {
         let req = ChatRequest {
             model: "claude-3-opus".to_string(),
             max_tokens: 4096,
-            system: Some("You are ZeroClaw".to_string()),
+            system: Some("You are TinyClaw".to_string()),
             messages: vec![Message {
                 role: "user".to_string(),
                 content: "hello".to_string(),
@@ -235,7 +259,7 @@ mod tests {
             temperature: 0.7,
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"system\":\"You are ZeroClaw\""));
+        assert!(json.contains("\"system\":\"You are TinyClaw\""));
     }
 
     #[test]

@@ -1,11 +1,13 @@
 pub mod log;
 pub mod multi;
 pub mod noop;
+#[cfg(feature = "otel")]
 pub mod otel;
 pub mod traits;
 
 pub use self::log::LogObserver;
 pub use noop::NoopObserver;
+#[cfg(feature = "otel")]
 pub use otel::OtelObserver;
 pub use traits::{Observer, ObserverEvent};
 
@@ -15,6 +17,7 @@ use crate::config::ObservabilityConfig;
 pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
     match config.backend.as_str() {
         "log" => Box::new(LogObserver::new()),
+        #[cfg(feature = "otel")]
         "otel" | "opentelemetry" | "otlp" => {
             match OtelObserver::new(
                 config.otel_endpoint.as_deref(),
@@ -32,6 +35,11 @@ pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
                     Box::new(NoopObserver)
                 }
             }
+        }
+        #[cfg(not(feature = "otel"))]
+        "otel" | "opentelemetry" | "otlp" => {
+            tracing::warn!("OTel not compiled in this build (use --features otel). Falling back to noop.");
+            Box::new(NoopObserver)
         }
         "none" | "noop" => Box::new(NoopObserver),
         _ => {
@@ -75,6 +83,7 @@ mod tests {
         assert_eq!(create_observer(&cfg).name(), "log");
     }
 
+    #[cfg(feature = "otel")]
     #[test]
     fn factory_otel_returns_otel() {
         let cfg = ObservabilityConfig {
@@ -85,6 +94,7 @@ mod tests {
         assert_eq!(create_observer(&cfg).name(), "otel");
     }
 
+    #[cfg(feature = "otel")]
     #[test]
     fn factory_opentelemetry_alias() {
         let cfg = ObservabilityConfig {
@@ -95,6 +105,7 @@ mod tests {
         assert_eq!(create_observer(&cfg).name(), "otel");
     }
 
+    #[cfg(feature = "otel")]
     #[test]
     fn factory_otlp_alias() {
         let cfg = ObservabilityConfig {

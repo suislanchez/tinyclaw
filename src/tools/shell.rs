@@ -344,7 +344,7 @@ mod tests {
 
         let tool = ShellTool::new(security.clone(), test_runtime());
         let denied = tool
-            .execute(json!({"command": "touch zeroclaw_shell_approval_test"}))
+            .execute(json!({"command": "touch tinyclaw_shell_approval_test"}))
             .await
             .unwrap();
         assert!(!denied.success);
@@ -356,13 +356,13 @@ mod tests {
 
         let allowed = tool
             .execute(json!({
-                "command": "touch zeroclaw_shell_approval_test",
+                "command": "touch tinyclaw_shell_approval_test",
                 "approved": true
             }))
             .await
             .unwrap();
         assert!(allowed.success);
 
-        let _ = std::fs::remove_file(std::env::temp_dir().join("zeroclaw_shell_approval_test"));
+        let _ = std::fs::remove_file(std::env::temp_dir().join("tinyclaw_shell_approval_test"));
     }
 }

@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// A single message in a conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +59,70 @@ impl ChatResponse {
     /// Convenience: return text content or empty string.
     pub fn text_or_empty(&self) -> &str {
         self.text.as_deref().unwrap_or("")
+    }
+}
+
+/// Token usage from a single API call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+}
+
+/// Thread-safe cumulative token/cost tracker for an entire session.
+#[derive(Debug, Clone)]
+pub struct UsageTracker {
+    pub prompt_tokens: Arc<AtomicU64>,
+    pub completion_tokens: Arc<AtomicU64>,
+    pub total_tokens: Arc<AtomicU64>,
+    pub request_count: Arc<AtomicU64>,
+}
+
+impl Default for UsageTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UsageTracker {
+    pub fn new() -> Self {
+        Self {
+            prompt_tokens: Arc::new(AtomicU64::new(0)),
+            completion_tokens: Arc::new(AtomicU64::new(0)),
+            total_tokens: Arc::new(AtomicU64::new(0)),
+            request_count: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub fn add(&self, usage: &TokenUsage) {
+        self.prompt_tokens
+            .fetch_add(usage.prompt_tokens, Ordering::Relaxed);
+        self.completion_tokens
+            .fetch_add(usage.completion_tokens, Ordering::Relaxed);
+        self.total_tokens
+            .fetch_add(usage.total_tokens, Ordering::Relaxed);
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> TokenUsage {
+        TokenUsage {
+            prompt_tokens: self.prompt_tokens.load(Ordering::Relaxed),
+            completion_tokens: self.completion_tokens.load(Ordering::Relaxed),
+            total_tokens: self.total_tokens.load(Ordering::Relaxed),
+        }
+    }
+
+    pub fn requests(&self) -> u64 {
+        self.request_count.load(Ordering::Relaxed)
+    }
+
+    /// Estimate cost in USD. Rough averages across common models.
+    pub fn estimated_cost_usd(&self) -> f64 {
+        let prompt = self.prompt_tokens.load(Ordering::Relaxed) as f64;
+        let completion = self.completion_tokens.load(Ordering::Relaxed) as f64;
+        // Conservative estimate: ~$3/M input, ~$15/M output (Claude Sonnet range)
+        (prompt * 3.0 / 1_000_000.0) + (completion * 15.0 / 1_000_000.0)
     }
 }
 
@@ -122,6 +188,32 @@ pub trait Provider: Send + Sync {
     /// Default implementation is a no-op; providers with HTTP clients should override.
     async fn warmup(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    /// Streaming chat with history. Sends token deltas through `token_tx` as
+    /// they arrive, and returns the full aggregated response.
+    /// Default implementation falls back to non-streaming `chat_with_history`.
+    async fn chat_with_history_stream(
+        &self,
+        messages: &[ChatMessage],
+        model: &str,
+        temperature: f64,
+        token_tx: tokio::sync::mpsc::Sender<String>,
+    ) -> anyhow::Result<String> {
+        let response = self.chat_with_history(messages, model, temperature).await?;
+        let _ = token_tx.send(response.clone()).await;
+        Ok(response)
+    }
+
+    /// Returns true if this provider supports real token-by-token streaming.
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Set a usage tracker for this provider. Providers that support it will
+    /// accumulate token counts into the tracker after each API call.
+    fn set_usage_tracker(&mut self, _tracker: UsageTracker) {
+        // Default: no-op. Providers override to store the tracker.
     }
 }
 
