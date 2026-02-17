@@ -1,0 +1,13 @@
+target/
+src/
+tests/
+examples/
+docs/
+scripts/
+dev/
+.git/
+*.rs
+*.toml
+*.lock
+Dockerfile
+docker-compose.yml
