@@ -1,6 +1,7 @@
 pub mod browser;
 pub mod browser_open;
 pub mod composio;
+pub mod file_patch;
 pub mod file_read;
 pub mod file_write;
 pub mod image_info;
@@ -8,12 +9,15 @@ pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod screenshot;
+pub mod search_files;
 pub mod shell;
 pub mod traits;
+pub mod web_fetch;
 
 pub use browser::BrowserTool;
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
+pub use file_patch::FilePatchTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
 pub use image_info::ImageInfoTool;
@@ -21,8 +25,10 @@ pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
 pub use screenshot::ScreenshotTool;
+pub use search_files::SearchFilesTool;
 pub use shell::ShellTool;
 pub use traits::Tool;
+pub use web_fetch::WebFetchTool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
 
@@ -44,7 +50,9 @@ pub fn default_tools_with_runtime(
     vec![
         Box::new(ShellTool::new(security.clone(), runtime)),
         Box::new(FileReadTool::new(security.clone())),
-        Box::new(FileWriteTool::new(security)),
+        Box::new(FileWriteTool::new(security.clone())),
+        Box::new(FilePatchTool::new(security.clone())),
+        Box::new(SearchFilesTool::new(security)),
     ]
 }
 
@@ -76,6 +84,9 @@ pub fn all_tools_with_runtime(
         Box::new(ShellTool::new(security.clone(), runtime)),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
+        Box::new(FilePatchTool::new(security.clone())),
+        Box::new(SearchFilesTool::new(security.clone())),
+        Box::new(WebFetchTool::new()),
         Box::new(MemoryStoreTool::new(memory.clone())),
         Box::new(MemoryRecallTool::new(memory.clone())),
         Box::new(MemoryForgetTool::new(memory)),
@@ -118,7 +129,7 @@ mod tests {
     fn default_tools_has_three() {
         let security = Arc::new(SecurityPolicy::default());
         let tools = default_tools(security);
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 5);
     }
 
     #[test]

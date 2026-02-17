@@ -11,6 +11,7 @@ use std::fmt::Write;
 use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 /// Maximum agentic tool-use iterations per user message to prevent runaway loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
@@ -134,15 +135,36 @@ async fn agent_turn(
     temperature: f64,
 ) -> Result<String> {
     for _iteration in 0..MAX_TOOL_ITERATIONS {
-        let response = provider
-            .chat_with_history(history, model, temperature)
-            .await?;
+        // Use streaming if available for real-time CLI output
+        let response = if provider.supports_streaming() {
+            let (stream_tx, mut stream_rx) = mpsc::channel::<String>(64);
+
+            // Forward tokens to stdout as they arrive
+            let printer = tokio::spawn(async move {
+                while let Some(token) = stream_rx.recv().await {
+                    print!("{token}");
+                    let _ = std::io::stdout().flush();
+                }
+            });
+
+            let result = provider
+                .chat_with_history_stream(history, model, temperature, stream_tx)
+                .await;
+            printer.abort();
+            println!(); // newline after streaming
+            result?
+        } else {
+            provider
+                .chat_with_history(history, model, temperature)
+                .await?
+        };
 
         let (text, tool_calls) = parse_tool_calls(&response);
 
         if tool_calls.is_empty() {
             // No tool calls — this is the final response
             history.push(ChatMessage::assistant(&response));
+            // If we streamed, text was already printed; return it for logging
             return Ok(if text.is_empty() {
                 response
             } else {
@@ -150,8 +172,8 @@ async fn agent_turn(
             });
         }
 
-        // Print any text the LLM produced alongside tool calls
-        if !text.is_empty() {
+        // Print any text the LLM produced alongside tool calls (non-streaming path)
+        if !text.is_empty() && !provider.supports_streaming() {
             print!("{text}");
             let _ = std::io::stdout().flush();
         }
